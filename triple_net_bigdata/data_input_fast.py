@@ -17,7 +17,7 @@ class Data_set:
         self.train_index_list,self.test_index_list = self._spilt_train_test_index(train_percent)
         end2 = time.time()
         print "split over,time:" + str(end2-end1)
-        self.main_question_list = self.get_main_question_list(train_percent)
+        self.main_question_list = self.get_main_question_list()
         self.query_triple_list,self.main_question_triple_list,self.other_question_triple_list = self.generate_triple_fast()
         end3 = time.time()
         print "generate_triple_over,time:" + str(end3-end2)
@@ -36,7 +36,7 @@ class Data_set:
         return length
     
     #根据数据集生成triple
-    def generate_triple_fast(self,train_percent):
+    def generate_triple_fast(self):
         query = list(self.df['query'])
         main_question = list(self.df['main_question'])
         query_final = query * self.main_question_len
@@ -44,11 +44,14 @@ class Data_set:
         other_question = list(set(self.df['main_question'])) * len(self.df)
         return query_final,main_question_final,other_question
     
-    def _spilt_train_test_index(self,train_percent):
-        data_size = len(self.df) * self.main_question_len
-        full_list = [i for i in range(data_size)]
-        train_index_list = random.sample(full_list,int(data_size*train_percent))
-        test_index_list = list(set(full_list) - set(train_index_list))
+  def _spilt_train_test_index(self,train_percent):
+        train_index_list = []
+        test_index_list = []
+        for i in range(len(self.df)):
+            if random.random() < train_percent:
+                train_index_list.append(i)
+            else:
+                test_index_list.append(i)
         return train_index_list,test_index_list
         
     #构建字典索引
