@@ -47,7 +47,7 @@ class Data_set:
   def _spilt_train_test_index(self,train_percent):
         train_index_list = []
         test_index_list = []
-        for i in range(len(self.df)):
+        for i in range(len(self.df) * self.main_question_len):
             if random.random() < train_percent:
                 train_index_list.append(i)
             else:
@@ -77,8 +77,8 @@ class Data_set:
             print "your column name is wrong"
 
         result = np.zeros((len(index_list),len(self.word_dict)))
-        for i,s in enumerate(doc_list):
-            for j,w in enumerate(s):
+        for i in index_list:
+            for w in doc_list[i]:
                 if w in self.word_dict:
                     result[i,self.word_dict[w]] = 1
 
