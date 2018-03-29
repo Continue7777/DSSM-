@@ -59,6 +59,19 @@ def variable_summaries(var, name):
         tf.summary.scalar('min/' + name, tf.reduce_min(var))
         tf.summary.histogram(name, var)
         
+def get_text_summaries():
+    with tf.name_scope('predict_text'):
+        predict_strings = tf.placeholder(tf.string,name='predict')
+        text_summary = tf.summary.text(name='pair',tensor=predict_strings)
+    return predict_strings,text_summary
+    
+
+def get_evaluate_test_summary():
+    with tf.name_scope('evaluate'):
+        evaluate_on_test_acc = tf.placeholder(tf.float32,name='evaluateOnTest')
+        return evaluate_on_test_acc,tf.summary.scalar('evaluate on test',evaluate_on_test_acc)
+    
+
 def get_loss_summary(name):
     with tf.name_scope(name):
         average_loss = tf.placeholder(tf.float32)
@@ -107,6 +120,7 @@ def fc_layer(query,doc_positive,doc_negative,layer_in_len,layer_out_len,name,fir
         if batch_norm:
             query_out,doc_positive_out,doc_negative_out = batch_layer(query_out,doc_positive_out,doc_negative_out,layer_out_len,True,name+'BN')
     return query_out,doc_positive_out,doc_negative_out
+
     
 def train_loss_layer(query_y,doc_positive_y,doc_negative_y):
     """
@@ -168,7 +182,7 @@ def triple_loss_layer(query_y,doc_positive_y,doc_negative_y):
     # 只取第一列，即正样本列概率。
     hit_prob = tf.slice(prob, [0, 0], [-1, 1])
     loss = -tf.reduce_sum(tf.log(hit_prob))
-    return loss
+    return cos_sim,loss
 
 def accuracy_layer(prob):
     correct_prediction = tf.equal(tf.argmax(prob, 1), 0)
@@ -202,6 +216,8 @@ def predict_layer(query_y,doc_positive_y):
     label = tf.argmax(prob,1)[0]
     return prob,label
 
+
+
 def pull_all(index_list):
     #该地方插入函数，把query_iin，doc_positive_in,doc_negative_in转化成one_hot，再转化成coo_matrix
     query_in = data_set.get_one_hot_from_batch(index_list,'query')
@@ -227,6 +243,7 @@ def pull_all(index_list):
 
     return query_in, doc_positive_in, doc_negative_in
 
+
 def pull_batch(index_list,batch_id):
     
     if (batch_id + 1) * query_BS >= len(index_list):
@@ -236,6 +253,7 @@ def pull_batch(index_list,batch_id):
     batch_index_list = index_list[batch_id * query_BS:(batch_id + 1) * query_BS]
     query_in, doc_positive_in, doc_negative_in = pull_all(batch_index_list)
     return query_in, doc_positive_in, doc_negative_in
+
 
 def feed_dict(train_index_list,test_index_list,on_training, Train, batch_id):
     """
@@ -259,10 +277,11 @@ def feed_evaluate_dict(sentence,on_training=True):
     #该地方插入函数，把query_iin，doc_positive_in,doc_negative_in转化成one_hot，再转化成coo_matrix
     query = data_set.get_one_hot_from_sentence(sentence)
     doc_positive = data_set.get_one_hot_from_main_question()
-
+#     doc_negative = np.ones((1,data_set.get_word_num()))
+    
     query = coo_matrix(query)
     doc_positive = coo_matrix(doc_positive)
-
+#     doc_negative = coo_matrix(doc_negative)
     
     query = tf.SparseTensorValue(
         np.transpose([np.array(query.row, dtype=np.int64), np.array(query.col, dtype=np.int64)]),
@@ -272,6 +291,10 @@ def feed_evaluate_dict(sentence,on_training=True):
         np.transpose([np.array(doc_positive.row, dtype=np.int64), np.array(doc_positive.col, dtype=np.int64)]),
         np.array(doc_positive.data, dtype=np.float),
         np.array(doc_positive.shape, dtype=np.int64))
+#     doc_negative = tf.SparseTensorValue(
+#         np.transpose([np.array(doc_negative.row, dtype=np.int64), np.array(doc_negative.col, dtype=np.int64)]),
+#         np.array(doc_negative.data, dtype=np.float),
+#         np.array(doc_negative.shape, dtype=np.int64))
     
     return {query_in: query, doc_positive_in: doc_positive,on_train: on_training}
 
@@ -317,9 +340,11 @@ def train():
     # 创建一个Saver对象，选择性保存变量或者模型。
     saver = tf.train.Saver()
     with tf.Session(config=config) as sess:
+        
         print "variable initial"
         sess.run(tf.global_variables_initializer())
         print "variable initial ok!"
+        
         train_writer = tf.summary.FileWriter(FLAGS.summaries_dir + '/train', sess.graph)
         test_writer = tf.summary.FileWriter(FLAGS.summaries_dir + '/test', sess.graph)
 
@@ -328,23 +353,30 @@ def train():
             epoch_loss = 0
             epoch_acc = 0
             start = time.time()
-            next_time = 0.0
+            next_time = time.time()
             for batch_id in range(int(train_size/query_BS)):
-                _,loss_v,acc_v = sess.run([train_step,loss,accuracy], feed_dict=feed_dict(train_index_list,test_index_list,True, True, batch_id))
+                summary,_,loss_v,acc_v = sess.run([merged,train_step,loss,accuracy], feed_dict=feed_dict(train_index_list,test_index_list,True, True, batch_id))    
+                train_writer.add_summary(summary, batch_id + 1)
                 epoch_loss += loss_v
                 epoch_acc += acc_v
                 if batch_id % 500 == 0:
                     this_time = time.time()
                     print ("batch_id:%d  loss:%f time:%f")%(batch_id,loss_v,this_time-next_time)
-                    next_time = this_time
+                    start_time_inbatch = time.time()
+                    #add text_summary
+                    query_list = random.sample(list(data_set.df['query']),10)
+                    text_summaries_t = sess.run(text_summary,feed_dict={predict_strings:predict_label_n_with_sess(sess,query_list)})
+                    train_writer.add_summary(text_summaries_t,int(train_size/query_BS) * epoch_id + batch_id+1)
+                    #add evaluate_test()
+                    evaluae_summary_t = sess.run(evaluae_summary,feed_dict={evaluate_on_test_acc:evaluate_test_with_sess(sess,'data/train_data_toy.csv')})
+                    train_writer.add_summary(evaluae_summary_t,batch_id+1)   
+                    print ("this evaluate cost time :%f"%(time.time() -  start_time_inbatch ))
+                    next_time = time.time()
+
 
             end = time.time()
             epoch_loss /= int(train_size/query_BS)
             epoch_acc /= int(train_size/query_BS)
-            average_loss,train_loss_summary = get_loss_summary('train')
-            train_loss = sess.run(train_loss_summary, feed_dict={average_loss: epoch_loss})
-            train_writer.add_summary(train_loss, epoch_id + 1)
-
             print("\nEpoch #%-5d | Train Loss: %-4.3f | PureTrainTime: %-3.3fs | acc: %f" %
                   (epoch_id, epoch_loss, end - start,epoch_acc))
 
@@ -353,15 +385,13 @@ def train():
             epoch_loss = 0
             epoch_acc = 0
             for batch_id in range(int(test_size/query_BS)):
-                loss_v,acc_v = sess.run([loss,accuracy], feed_dict=feed_dict(train_index_list,test_index_list,False, False, batch_id))
+                summary,loss_v,acc_v = sess.run([merged,loss,accuracy], feed_dict=feed_dict(train_index_list,test_index_list,False, False, batch_id))
+                test_writer.add_summary(summary, batch_id + 1)
                 epoch_loss += loss_v
                 epoch_acc += acc_v
             end = time.time()
             epoch_loss /= int(test_size/query_BS)
             epoch_acc /= int(test_size/query_BS)
-            average_loss,test_loss_summary = get_loss_summary('test')
-            test_loss = sess.run(test_loss_summary, feed_dict={average_loss: epoch_loss})
-            test_writer.add_summary(test_loss, epoch_id + 1)
             print("Epoch #%-5d | Test  Loss: %-4.3f | Calc_LossTime: %-3.3fs | acc: %f" %
                   (epoch_id, epoch_loss,end - start,epoch_acc))
 
@@ -369,7 +399,10 @@ def train():
         save_path = saver.save(sess, "model/model_1.ckpt")
         print("Model saved in file: ", save_path)
 
-def predict_label(sentence):
+#这里之后必要时写成类，现在还不能当库用，里面很多默认的全局。
+
+#根据句子，预测主问题
+def predict_label(sentence,view=True):
     """
     class fun flag
     global var: pred_prob,pred_label dataset
@@ -386,10 +419,20 @@ def predict_label(sentence):
         print "Model restored."
         pred_prob_v,pred_label_v = sess.run([pred_prob,pred_label],feed_dict=feed_evaluate_dict(sentence))
         pred_main_question = data_set.get_main_question_from_label_index(pred_label_v)
-        print sentence,pred_main_question,pred_label_v
+        if view:
+            print sentence,pred_main_question,pred_label_v
+    return pred_main_question
+
+def predict_label_n_with_sess(sess,sentence_list):
+    result_list = []
+    for i,sentence in enumerate(sentence_list):
+        pred_prob_v,pred_label_v = sess.run([pred_prob,pred_label],feed_dict=feed_evaluate_dict(sentence))
+        pred_main_question = data_set.get_main_question_from_label_index(pred_label_v)
+        result_list.append(sentence + ":" +pred_main_question)
+    return result_list
         
+#测试主问题的正确匹配度
 def evaluate_main_question():
-    #测试主问题的正确匹配度
     saver = tf.train.Saver()
 
     #写一个函数查看输入query和输出类别
@@ -411,6 +454,7 @@ def evaluate_main_question():
             count += 1
         print acc/float(count),count
         
+#查看一个triple的loss
 def show_triple_loss(query,doc_pos,doc_neg):
     """
     class flag
@@ -425,13 +469,13 @@ def show_triple_loss(query,doc_pos,doc_neg):
         config = tf.ConfigProto(device_count= {'GPU' : 0},allow_soft_placement=True)
     with tf.Session(config=config) as sess:     
         saver.restore(sess, "model/model_1.ckpt")
-        loss = triple_loss_layer(query_y,doc_positive_y,doc_negative_y)
-        return  sess.run(loss,feed_dict=feed_triple_dict(query,doc_pos,doc_neg))
+        cos_sim,loss = triple_loss_layer(query_y,doc_positive_y,doc_negative_y)
+        return  sess.run([cos_sim,loss],feed_dict=feed_triple_dict(query,doc_pos,doc_neg))
 
-def evaluate_test(test_data_path):
-    """
-    测试log
-    """
+#对所有log进行测试
+#写一个测评脚本，测试真实情况与可视化真实情况
+def evaluate_test(test_data_path,view=True):
+    print "start evaluate test func"
     saver = tf.train.Saver()
 
     #写一个函数查看输入query和输出类别
@@ -454,12 +498,30 @@ def evaluate_test(test_data_path):
             pred_main_question = data_set.get_main_question_from_label_index(pred_label_v)
             if pred_main_question == test_question_label_list[i]:
                 acc += 1
+#             else:
+#                 print sentence,pred_main_question,test_question_label_list[i]
             count += 1
-            if i % 1000 == 0:
-                print i
-            
-        print acc/float(count),count
-
+#             if i % 1000 == 0:
+#                 print i
+        if view:
+            print acc/float(count),count
+    return acc/float(count)
+        
+def evaluate_test_with_sess(sess,test_data_path):
+    count = 0
+    acc = 0
+    df_test = pd.read_csv(test_data_path,encoding='utf-8')
+    test_question_query_list = list(df_test['query'])
+    test_question_label_list = list(df_test['main_question'])
+    for i,sentence in enumerate(test_question_query_list):
+        pred_prob_v,pred_label_v = sess.run([pred_prob,pred_label],feed_dict=feed_evaluate_dict(sentence))
+        pred_main_question = data_set.get_main_question_from_label_index(pred_label_v)
+        if pred_main_question == test_question_label_list[i]:
+            acc += 1
+        count += 1
+    return acc/float(count)
+    
+#查看中间层
 def show_var_from_sentence(sentence):
     saver = tf.train.Saver()
 
@@ -503,28 +565,9 @@ train_step = tf.train.AdamOptimizer(FLAGS.learning_rate).minimize(loss)
 
 merged = tf.summary.merge_all()
 
+#evaluate
+evaluate_on_test_acc,evaluae_summary = get_evaluate_test_summary()
+#record predict text
+predict_strings,text_summary = get_text_summaries()
+
 train()
-
-predict_label('请问金卡能退吗')
-
-#主问题测试
-evaluate_main_question()    
-
-#测试集测试
-evaluate_test('data/train_data_toy.csv')
-
-#测试triple-loss
-query = '会员卡'
-doc_pos = '会员卡规则'
-doc_neg = '很高兴认识你'
-print show_triple_loss(query,doc_pos,doc_neg)
-
-query = '会员卡规则'
-doc_pos = '会员卡规则'
-doc_neg = '很高兴认识你'
-print show_triple_loss(query,doc_pos,doc_neg)
-
-query = '会员卡规则'
-doc_pos = '很高兴认识你'
-doc_neg = '会员卡规则'
-print show_triple_loss(query,doc_pos,doc_neg)
