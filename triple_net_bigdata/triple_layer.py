@@ -5,13 +5,13 @@ import random
 import time
 import numpy as np
 import tensorflow as tf
-
+# import data_input
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string('summaries_dir', 'Summaries', 'Summaries directory')
-flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')
+flags.DEFINE_float('learning_rate', 1, 'Initial learning rate.')
 flags.DEFINE_integer('epoch_num', 5, 'Number of epoch.')
 flags.DEFINE_bool('gpu', 0, "Enable GPU or not")
 
@@ -107,7 +107,6 @@ def fc_layer(query,doc_positive,doc_negative,layer_in_len,layer_out_len,name,fir
         if batch_norm:
             query_out,doc_positive_out,doc_negative_out = batch_layer(query_out,doc_positive_out,doc_negative_out,layer_out_len,True,name+'BN')
     return query_out,doc_positive_out,doc_negative_out
-
     
 def train_loss_layer(query_y,doc_positive_y,doc_negative_y):
     """
@@ -131,7 +130,7 @@ def train_loss_layer(query_y,doc_positive_y,doc_negative_y):
 
             # cos_sim_raw = query * doc / (||query|| * ||doc||)
             cos_sim_raw = tf.truediv(prod, norm_prod)
-            cos_sim = tf.transpose(tf.reshape(tf.transpose(cos_sim_raw), [2, query_BS])) 
+            cos_sim = tf.transpose(tf.reshape(tf.transpose(cos_sim_raw), [2, query_BS]))  * 20
           
     with tf.name_scope('train_Loss'):
         # Train Loss
@@ -163,7 +162,7 @@ def triple_loss_layer(query_y,doc_positive_y,doc_negative_y):
     # cos_sim_raw = query * doc / (||query|| * ||doc||)
     cos_sim_raw = tf.truediv(prod, norm_prod)
     
-    cos_sim = tf.transpose(tf.reshape(tf.transpose(cos_sim_raw), [2, 1])) 
+    cos_sim = tf.transpose(tf.reshape(tf.transpose(cos_sim_raw), [2, 1])) * 20
     
     prob = tf.nn.softmax(cos_sim)
     # 只取第一列，即正样本列概率。
@@ -203,12 +202,11 @@ def predict_layer(query_y,doc_positive_y):
     label = tf.argmax(prob,1)[0]
     return prob,label
 
-
 def pull_all(index_list):
     #该地方插入函数，把query_iin，doc_positive_in,doc_negative_in转化成one_hot，再转化成coo_matrix
     query_in = data_set.get_one_hot_from_batch(index_list,'query')
     doc_positive_in = data_set.get_one_hot_from_batch(index_list,'main_question')
-    doc_negative_in = data_set.get_one_hot_from_batch(index_list,'wrong_question')
+    doc_negative_in = data_set.get_one_hot_from_batch(index_list,'other_question')
     
     query_in = coo_matrix(query_in)
     doc_positive_in = coo_matrix(doc_positive_in)
@@ -229,7 +227,6 @@ def pull_all(index_list):
 
     return query_in, doc_positive_in, doc_negative_in
 
-
 def pull_batch(index_list,batch_id):
     
     if (batch_id + 1) * query_BS >= len(index_list):
@@ -239,7 +236,6 @@ def pull_batch(index_list,batch_id):
     batch_index_list = index_list[batch_id * query_BS:(batch_id + 1) * query_BS]
     query_in, doc_positive_in, doc_negative_in = pull_all(batch_index_list)
     return query_in, doc_positive_in, doc_negative_in
-
 
 def feed_dict(train_index_list,test_index_list,on_training, Train, batch_id):
     """
@@ -263,11 +259,10 @@ def feed_evaluate_dict(sentence,on_training=True):
     #该地方插入函数，把query_iin，doc_positive_in,doc_negative_in转化成one_hot，再转化成coo_matrix
     query = data_set.get_one_hot_from_sentence(sentence)
     doc_positive = data_set.get_one_hot_from_main_question()
-    doc_negative = np.ones((1,data_set.get_word_num()))
-    
+
     query = coo_matrix(query)
     doc_positive = coo_matrix(doc_positive)
-    doc_negative = coo_matrix(doc_negative)
+
     
     query = tf.SparseTensorValue(
         np.transpose([np.array(query.row, dtype=np.int64), np.array(query.col, dtype=np.int64)]),
@@ -277,10 +272,6 @@ def feed_evaluate_dict(sentence,on_training=True):
         np.transpose([np.array(doc_positive.row, dtype=np.int64), np.array(doc_positive.col, dtype=np.int64)]),
         np.array(doc_positive.data, dtype=np.float),
         np.array(doc_positive.shape, dtype=np.int64))
-#     doc_negative = tf.SparseTensorValue(
-#         np.transpose([np.array(doc_negative.row, dtype=np.int64), np.array(doc_negative.col, dtype=np.int64)]),
-#         np.array(doc_negative.data, dtype=np.float),
-#         np.array(doc_negative.shape, dtype=np.int64))
     
     return {query_in: query, doc_positive_in: doc_positive,on_train: on_training}
 
@@ -313,7 +304,6 @@ def feed_triple_dict(query,doc_pos,doc_neg,on_training=True):
     
     return {query_in: query, doc_positive_in: doc_positive, doc_negative_in: doc_negative,on_train: on_training}
 
-
 def train():
     """
     global var : epoch_num train_index_list test_index_list train_size test_size query_BS
@@ -338,10 +328,15 @@ def train():
             epoch_loss = 0
             epoch_acc = 0
             start = time.time()
+            next_time = 0.0
             for batch_id in range(int(train_size/query_BS)):
                 _,loss_v,acc_v = sess.run([train_step,loss,accuracy], feed_dict=feed_dict(train_index_list,test_index_list,True, True, batch_id))
                 epoch_loss += loss_v
                 epoch_acc += acc_v
+                if batch_id % 500 == 0:
+                    this_time = time.time()
+                    print ("batch_id:%d  loss:%f time:%f")%(batch_id,loss_v,this_time-next_time)
+                    next_time = this_time
 
             end = time.time()
             epoch_loss /= int(train_size/query_BS)
@@ -374,10 +369,6 @@ def train():
         save_path = saver.save(sess, "model/model_1.ckpt")
         print("Model saved in file: ", save_path)
 
-
-#这里之后必要时写成类，现在还不能当库用，里面很多默认的全局。
-
-#根据句子，预测主问题
 def predict_label(sentence):
     """
     class fun flag
@@ -397,8 +388,8 @@ def predict_label(sentence):
         pred_main_question = data_set.get_main_question_from_label_index(pred_label_v)
         print sentence,pred_main_question,pred_label_v
         
-#测试主问题的正确匹配度
 def evaluate_main_question():
+    #测试主问题的正确匹配度
     saver = tf.train.Saver()
 
     #写一个函数查看输入query和输出类别
@@ -420,7 +411,6 @@ def evaluate_main_question():
             count += 1
         print acc/float(count),count
         
-#查看一个triple的loss
 def show_triple_loss(query,doc_pos,doc_neg):
     """
     class flag
@@ -438,9 +428,10 @@ def show_triple_loss(query,doc_pos,doc_neg):
         loss = triple_loss_layer(query_y,doc_positive_y,doc_negative_y)
         return  sess.run(loss,feed_dict=feed_triple_dict(query,doc_pos,doc_neg))
 
-#对所有log进行测试
-#写一个测评脚本，测试真实情况与可视化真实情况
-def evaluate_test():
+def evaluate_test(test_data_path):
+    """
+    测试log
+    """
     saver = tf.train.Saver()
 
     #写一个函数查看输入query和输出类别
@@ -455,7 +446,7 @@ def evaluate_test():
         
         count = 0
         acc = 0
-        df_test = pd.read_excel('data_part1.xlsx')
+        df_test = pd.read_csv(test_data_path,encoding='utf-8')
         test_question_query_list = list(df_test['query'])
         test_question_label_list = list(df_test['main_question'])
         for i,sentence in enumerate(test_question_query_list):
@@ -463,15 +454,12 @@ def evaluate_test():
             pred_main_question = data_set.get_main_question_from_label_index(pred_label_v)
             if pred_main_question == test_question_label_list[i]:
                 acc += 1
-#             else:
-#                 print sentence,pred_main_question,test_question_label_list[i]
             count += 1
             if i % 1000 == 0:
                 print i
             
         print acc/float(count),count
-        
-#查看中间层
+
 def show_var_from_sentence(sentence):
     saver = tf.train.Saver()
 
@@ -484,10 +472,9 @@ def show_var_from_sentence(sentence):
         saver.restore(sess, "model/model_1.ckpt")
         return  sess.run(query_l1_out,feed_dict=feed_evaluate_dict(sentence))
 
-
 #测试dataset
 from data_input_fast import Data_set
-data_set = Data_set(data_path='data/train_data.csv')
+data_set = Data_set(data_path='data/train_data_toy.csv',data_percent=0.5,train_percent=0.7)
 train_size, test_size = data_set.get_train_test_size()
 train_index_list = data_set.train_index_list
 test_index_list = data_set.test_index_list
@@ -518,13 +505,13 @@ merged = tf.summary.merge_all()
 
 train()
 
-print predict_label('   请问金卡能退吗')
+predict_label('请问金卡能退吗')
 
 #主问题测试
-evaluate_main_question()
+evaluate_main_question()    
 
 #测试集测试
-evaluate_test()
+evaluate_test('data/train_data_toy.csv')
 
 #测试triple-loss
 query = '会员卡'

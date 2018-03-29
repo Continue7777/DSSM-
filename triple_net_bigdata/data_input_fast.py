@@ -1,10 +1,11 @@
-import numpy as np
+#-*- coding:utf-8 -*-
 import pandas as pd
 import random
 import time
+import numpy as np
 
 class Data_set:
-    def __init__(self,data_path,train_percent=0.7):
+    def __init__(self,data_path,data_percent=0.3,train_percent=0.7):
         start = time.time()
         self.data_path = data_path
         self.df = pd.read_csv(data_path,encoding='utf-8')
@@ -12,11 +13,13 @@ class Data_set:
         print "read over,time:" + str(end-start)
         self.word_dict = self._get_word_dict()
         end1 = time.time()
+        print "word_dict_num:" + str(len(self.word_dict))
         print "build dict over,time:" + str(end1-end)
         self.main_question_len = self.get_main_question_num()
-        self.train_index_list,self.test_index_list = self._spilt_train_test_index(train_percent)
+        self.train_index_list,self.test_index_list = self._spilt_train_test_index(data_percent,train_percent)
         end2 = time.time()
         print "split over,time:" + str(end2-end1)
+        print "train_size and test_size:" + str(len(self.train_index_list)) + " " + str(len(self.test_index_list))
         self.main_question_list = self.get_main_question_list()
         self.query_triple_list,self.main_question_triple_list,self.other_question_triple_list = self.generate_triple_fast()
         end3 = time.time()
@@ -43,15 +46,18 @@ class Data_set:
         main_question_final = main_question * self.main_question_len
         other_question = list(set(self.df['main_question'])) * len(self.df)
         return query_final,main_question_final,other_question
+
     
-  def _spilt_train_test_index(self,train_percent):
+    def _spilt_train_test_index(self,data_percent,train_percent):
         train_index_list = []
         test_index_list = []
         for i in range(len(self.df) * self.main_question_len):
-            if random.random() < train_percent:
-                train_index_list.append(i)
-            else:
-                test_index_list.append(i)
+            #只选用30%的数据
+            if random.random() < data_percent:
+                if random.random() < train_percent:
+                    train_index_list.append(i)
+                else:
+                    test_index_list.append(i)
         return train_index_list,test_index_list
         
     #构建字典索引
@@ -77,8 +83,8 @@ class Data_set:
             print "your column name is wrong"
 
         result = np.zeros((len(index_list),len(self.word_dict)))
-        for i in index_list:
-            for w in doc_list[i]:
+        for i,index in enumerate(index_list):
+            for w in doc_list[index]:
                 if w in self.word_dict:
                     result[i,self.word_dict[w]] = 1
 
