@@ -223,5 +223,5 @@ with tf.Session(config=config) as sess:
                 train_writer.add_summary(evaluae_summary_t,batch_id+1)   
 
         #保存模型,每个epoch保存一次
-        save_path = saver.save(sess, FLAGS.model_dir+checkpoint_name)
+        save_path = saver.save(sess, FLAGS.model_dir+FLAGS.checkpoint_name)
         print("Model saved in file: ", save_path)
