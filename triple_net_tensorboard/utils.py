@@ -113,7 +113,7 @@ def fc_layer(query,doc_positive,doc_negative,layer_in_len,layer_out_len,name,fir
             doc_negative_out = tf.matmul(doc_negative, weight) + bias
         
         if batch_norm:
-            query_out,doc_positive_out,doc_negative_out = batch_layer(query_out,doc_positive_out,doc_negative_out,layer_out_len,True,name+'BN')
+            query_out,doc_positive_out,doc_negative_out = batch_layer(query_out,doc_positive_out,doc_negative_out,layer_out_len,tf.convert_to_tensor(True),name+'BN')
     return query_out,doc_positive_out,doc_negative_out
 
     
