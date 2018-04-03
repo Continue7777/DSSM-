@@ -98,10 +98,10 @@ def batch_layer(query,doc_pos,doc_neg,next_layer_len,on_train,name):
 def fc_layer(query,doc_positive,doc_negative,layer_in_len,layer_out_len,name,first_layer,batch_norm):
     with tf.variable_scope(name):
         layer_par_range = np.sqrt(6.0 / (layer_in_len + layer_out_len))
-        weight = tf.get_variable(tf.random_uniform([layer_in_len, layer_out_len], -layer_par_range, layer_par_range))
-        bias = tf.Variable(tf.random_uniform([layer_out_len], -layer_par_range, layer_par_range))
-        variable_summaries(weight, name+'_weights')
-        variable_summaries(bias, name+'_biases')
+        weight = tf.get_variable(name='weights',initializer=tf.random_uniform([layer_in_len, layer_out_len], -layer_par_range, layer_par_range))
+        bias = tf.get_variable(name="biases",initializer=tf.random_uniform([layer_out_len], -layer_par_range, layer_par_range))
+        variable_summaries(weight, 'weights')
+        variable_summaries(bias, 'biases')
         
         if first_layer:
             query_out = tf.sparse_tensor_dense_matmul(query, weight) + bias
