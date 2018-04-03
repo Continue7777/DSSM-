@@ -51,8 +51,8 @@ def feed_dict_train_multi_gpu():
     describe: to match the text classification the data_sets's content is the doc in df
     """
     result_dict = {}
-    result[on_train]=True
-    for i in range(FLAG.gpu_num):
+    result_dict[on_train]=True
+    for i in range(FLAGS.gpu_num):
         query, doc_positive, doc_negative = pull_all()
         result_dict[query_input_list[i]] = query
         result_dict[doc_positive_input_list[i]] = doc_positive
@@ -151,11 +151,11 @@ def average_gradients(tower_grads):
 	    #   ((grad0_gpu0, var0_gpu0), ... , (grad0_gpuN, var0_gpuN))
         grads = []
     	for g, _ in grad_and_vars:
-	      # Add 0 dimension to the gradients to represent the tower.
-	       expanded_g = tf.expand_dims(g, 0)
+            # Add 0 dimension to the gradients to represent the tower.
+            expanded_g = tf.expand_dims(g, 0)
 
-		  # Append on a 'tower' dimension which we will average over below.
-		   grads.append(expanded_g)
+            # Append on a 'tower' dimension which we will average over below.
+            grads.append(expanded_g)
 
 	    # Average over the 'tower' dimension.
 	    grad = tf.concat(axis=0, values=grads)
