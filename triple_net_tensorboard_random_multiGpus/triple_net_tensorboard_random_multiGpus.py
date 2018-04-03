@@ -59,6 +59,7 @@ def feed_dict_train_multi_gpu():
         result_dict[doc_negative_input_list[i]] = doc_negative
         
     return result_dict
+
 def feed_dict_predict(sentence,doc_positive_spt,on_training=True):
     """
     input: data_sets is a dict and the value type is numpy
@@ -106,6 +107,17 @@ def feed_dict_triple(query,doc_pos,doc_neg,on_training=True):
     return {query_in: query, doc_positive_in: doc_positive, doc_negative_in: doc_negative,on_train: on_training}
 
 def predict_label_n_with_sess(sess,sentence_list):
+    with tf.variable_scope(tf.get_variable_scope(),reuse=True):
+        #fc1 
+        query_layer1_out,doc_pos_layer1_out,doc_neg_layer1_out = fc_layer(query_in,doc_positive_in,doc_negative_in,input_layer_num,layer1_len,'FC1',True,is_norm)
+        #fc2 
+        query_y,doc_positive_y,doc_negative_y = fc_layer(query_layer1_out,doc_pos_layer1_out,doc_neg_layer1_out,layer1_len,layer2_len,'FC2',False,is_norm)
+        #loss
+        cos_sim,prob,loss = train_loss_layer(query_y,doc_positive_y,doc_negative_y,query_BS)
+        #acc
+        accuracy = accuracy_layer(prob)
+        #pred_label
+        pred_prob,pred_label = predict_layer(query_y,doc_positive_y,main_question_num)
     result_list = []
     for i,sentence in enumerate(sentence_list):
         pred_prob_v,pred_label_v = sess.run([pred_prob,pred_label],feed_dict=feed_dict_predict(sentence,doc_main_question_spt))
@@ -114,6 +126,17 @@ def predict_label_n_with_sess(sess,sentence_list):
     return result_list
 
 def evaluate_test_with_sess(sess,test_question_query_list,test_question_label_list):
+    with tf.variable_scope(tf.get_variable_scope(),reuse=True):
+        #fc1 
+        query_layer1_out,doc_pos_layer1_out,doc_neg_layer1_out = fc_layer(query_in,doc_positive_in,doc_negative_in,input_layer_num,layer1_len,'FC1',True,is_norm)
+        #fc2 
+        query_y,doc_positive_y,doc_negative_y = fc_layer(query_layer1_out,doc_pos_layer1_out,doc_neg_layer1_out,layer1_len,layer2_len,'FC2',False,is_norm)
+        #loss
+        cos_sim,prob,loss = train_loss_layer(query_y,doc_positive_y,doc_negative_y,query_BS)
+        #acc
+        accuracy = accuracy_layer(prob)
+        #pred_label
+        pred_prob,pred_label = predict_layer(query_y,doc_positive_y,main_question_num)
     count = 0
     acc = 0
     for i,sentence in enumerate(test_question_query_list):
@@ -134,18 +157,19 @@ def get_loss(query_in,doc_positive_in,doc_negative_in):
     cos_sim,prob,loss = train_loss_layer(query_y,doc_positive_y,doc_negative_y,query_BS)
     return loss
 
+
 def average_gradients(tower_grads):
-  """Calculate the average gradient for each shared variable across all towers.
-  Note that this function provides a synchronization point across all towers.
-  Args:
+    """Calculate the average gradient for each shared variable across all towers.
+    Note that this function provides a synchronization point across all towers.
+    Args:
     tower_grads: List of lists of (gradient, variable) tuples. The outer list
       is over individual gradients. The inner list is over the gradient
       calculation for each tower.
-  Returns:
+    Returns:
      List of pairs of (gradient, variable) where the gradient has been averaged
      across all towers.
-  """
-	average_grads = []
+    """
+    average_grads = []
     for grad_and_vars in zip(*tower_grads):
 	    # Note that each grad_and_vars looks like the following:
 	    #   ((grad0_gpu0, var0_gpu0), ... , (grad0_gpuN, var0_gpuN))
@@ -180,7 +204,7 @@ flags.DEFINE_string('model_dir', 'model/', 'model directory')
 flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')
 flags.DEFINE_integer('step_num', 100000, 'batch_step')
 flags.DEFINE_bool('gpu', 0, "Enable GPU or not")
-flags.DEFINE_integer('print_cycle', 1000, "how many batches to print")
+flags.DEFINE_integer('print_cycle', 100, "how many batches to print")
 flags.DEFINE_integer('gpu_num', 2, "how many gpus to use")
 
 # the data_set and dataframe
@@ -207,18 +231,8 @@ is_norm = False
 layer1_len = 400
 layer2_len = 120
 
-#input
+# input
 query_in,doc_positive_in,doc_negative_in,on_train = input_layer(input_layer_num)
-#fc1 
-query_layer1_out,doc_pos_layer1_out,doc_neg_layer1_out = fc_layer(query_in,doc_positive_in,doc_negative_in,input_layer_num,layer1_len,'FC1',True,is_norm)
-#fc2 
-query_y,doc_positive_y,doc_negative_y = fc_layer(query_layer1_out,doc_pos_layer1_out,doc_neg_layer1_out,layer1_len,layer2_len,'FC2',False,is_norm)
-#loss
-cos_sim,prob,loss = train_loss_layer(query_y,doc_positive_y,doc_negative_y,query_BS)
-#acc
-accuracy = accuracy_layer(prob)
-#pred_label
-pred_prob,pred_label = predict_layer(query_y,doc_positive_y,main_question_num)
 # Optimizer
 train_opt = tf.train.AdamOptimizer(FLAGS.learning_rate)
 
@@ -231,12 +245,10 @@ tower_grads = []
 query_input_list = []
 doc_positive_input_list = []
 doc_negative_input_list = []
-# 将神经网络的优化过程跑在不同的GPU上
-with tf.variable_scope(tf.get_variable_scope(),reuse=True):
-	for i in range(FLAGS.gpu_num):
-	    # 将优化过程指定在一个GPU上。
-	    with tf.device('/gpu:%d' % i):
-            #input
+# 将神经网络的优化过程跑在不同的GPU上。
+with tf.variable_scope(tf.get_variable_scope()):
+    for i in xrange(FLAGS.gpu_num):
+        with tf.device('/gpu:%d' % i):
             input_result_ = input_layer(input_layer_num)
             query_input_list.append(input_result_[0])
             doc_positive_input_list.append(input_result_[1])
@@ -245,8 +257,7 @@ with tf.variable_scope(tf.get_variable_scope(),reuse=True):
             # 在第一次声明变量之后，将控制变量重用的参数设置为True。这样可以
             # 让不同的GPU更新同一组参数。注意tf.name_scope函数并不会影响
             # tf.get_ variable的命名空间。
-            # tf.get_variable_scope().reuse_variables()
-
+            tf.get_variable_scope().reuse_variables()
             # 使用当前GPU计算所有变量的梯度。
             grads = train_opt.compute_gradients(cur_loss)
             tower_grads.append(grads)
@@ -255,22 +266,11 @@ with tf.variable_scope(tf.get_variable_scope(),reuse=True):
 grads = average_gradients(tower_grads)
 for grad, var in grads:
     if grad is not None:
-        tf.summary.histogram(
-            'gradients_on_average/%s' % var.op.name, grad)
+        tf.summary.histogram('gradients_on_average/%s' % var.op.name, grad)
 
 # 使用平均梯度更新参数。
-apply_gradient_op = train_opt.apply_gradients(
-    grads, global_step=global_step)
-for var in tf.trainable_variables():
-    tf.summary.histogram(var.op.name, var)
+apply_gradient_op = train_opt.apply_gradients(grads, global_step=global_step)
 
-# # 计算变量的滑动平均值。
-# variable_averages = tf.train.ExponentialMovingAverage(
-#     MOVING_AVERAGE_DECAY, global_step)
-# variables_averages_op = variable_averages.apply(
-#     tf.trainable_variables())
-#train_step = tf.group(apply_gradient_op, variables_averages_op)
-# 每一轮迭代需要更新变量的取值并更新变量的滑动平均值。
 
 train_step = apply_gradient_op
 
@@ -306,7 +306,7 @@ with tf.Session(config=config) as sess:
             #add evaluate_test()
             evaluae_summary_t = sess.run(evaluae_summary,feed_dict={evaluate_on_test_acc:evaluate_test_with_sess(sess,test_question_query_list,test_question_label_list)})
             train_writer.add_summary(evaluae_summary_t,batch_id)   
-        elif batch_id % 50 == 0:
+        elif batch_id % 100 == 0:
             summary_v,_ = sess.run([merged,train_step], feed_dict=feed_dict_train_multi_gpu()) 
             train_writer.add_summary(summary_v, batch_id)
         else:
