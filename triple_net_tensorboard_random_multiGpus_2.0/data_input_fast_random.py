@@ -90,7 +90,7 @@ class Data_set:
 
         #query
         if self.word_frequence_flag and self.ngram_flag:
-            query = np.zeros((query_BS,len(self.word_dict)+self.topn_2gram_num))
+            query = np.zeros((query_BS,len(self.word_dict)))
             for i,index in enumerate(random_index_list):
                 sentence = self.df.iloc[index]['query']
                 for j,w in enumerate(sentence):
@@ -100,7 +100,7 @@ class Data_set:
                     if ngram_word in self.word_dict:
                         query[i,self.word_dict[ngram_word][0]] = self.word_dict[ngram_word][1]
         elif not self.word_frequence_flag and self.ngram_flag:
-            query = np.zeros((query_BS,len(self.word_dict)+self.topn_2gram_num))
+            query = np.zeros((query_BS,len(self.word_dict)))
             for i,index in enumerate(random_index_list):
                 sentence = self.df.iloc[index]['query']
                 for j,w in enumerate(sentence):
@@ -147,7 +147,7 @@ class Data_set:
             sentence = sentence.decode('utf-8')
           
         if self.word_frequence_flag and self.ngram_flag:
-            query = np.zeros((1,len(self.word_dict)+self.topn_2gram_num))
+            query = np.zeros((1,len(self.word_dict)))
             for j,w in enumerate(sentence):
                 ngram_word = sentence[j:j+2]
                 if w in self.word_dict:
@@ -155,7 +155,7 @@ class Data_set:
                 if ngram_word in self.word_dict:
                     query[0,self.word_dict[ngram_word][0]] = self.word_dict[ngram_word][1]
         elif not self.word_frequence_flag and self.ngram_flag:
-            query = np.zeros((1,len(self.word_dict)+self.topn_2gram_num))
+            query = np.zeros((1,len(self.word_dict)))
             for j,w in enumerate(sentence):
                 ngram_word = sentence[j:j+2]
                 if w in self.word_dict:
@@ -179,7 +179,7 @@ class Data_set:
         l = self.main_question_list
 
         if self.word_frequence_flag and self.ngram_flag:
-            query = np.zeros((len(l),len(self.word_dict)+self.topn_2gram_num))
+            query = np.zeros((len(l),len(self.word_dict)))
             for i,sentence in enumerate(l):
                 for j,w in enumerate(sentence):
                     ngram_word = sentence[j:j+2]
@@ -188,7 +188,7 @@ class Data_set:
                     if ngram_word in self.word_dict:
                         query[i,self.word_dict[ngram_word][0]] = self.word_dict[ngram_word][1]
         elif not self.word_frequence_flag and self.ngram_flag:
-            query = np.zeros((len(l),len(self.word_dict)+self.topn_2gram_num))
+            query = np.zeros((len(l),len(self.word_dict)))
             for i,sentence in enumerate(l):
                 for j,w in enumerate(sentence):
                     ngram_word = sentence[j:j+2]
@@ -216,7 +216,7 @@ class Data_set:
         
         result_dict = {}
         for sentence in l:
-            result_dict[sentence] = self.get_one_hot_from_sentence(sentence)
+            result_dict[sentence] = self.get_one_hot_from_sentence(sentence).reshape((-1,))
         return result_dict
     
     #根据label_Index获取main_question
