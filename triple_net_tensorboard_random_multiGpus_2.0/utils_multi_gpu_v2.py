@@ -142,25 +142,25 @@ def eular_distance_layer(query_y,doc_positive_y, doc_negative_y,doc_negative_num
         eular_distance = tf.transpose(tf.reshape(tf.transpose(eular_distance_raw), [doc_negative_num+1, batch_size]))
     return eular_distance
 
-def softmax_loss(distance_sim,view=True,is_first=False):
+def softmax_loss(distance_sim,is_first):
     with tf.name_scope('softmax_loss'):
         # 转化为softmax概率矩阵。
         prob = tf.nn.softmax(distance_sim)
         # 只取第一列，即正样本列概率。
         hit_prob = tf.slice(prob, [0, 0], [-1, 1])
         loss = -tf.reduce_sum(tf.log(hit_prob))
-        if view and is_first:
+        if is_first:
             tf.summary.scalar('softmax_loss', loss)
     return prob,loss
 
-def triplet_loss(distance_sim,margin=1.0,view=True,is_first=False):
+def triplet_loss(distance_sim,is_first,margin=1.0):
     with tf.name_scope('triplet_loss'):   
         d_pos = distance_sim[0,:]
         d_neg = distance_sim[1,:]
 
         loss = tf.maximum(0., margin + d_pos - d_neg)
         loss = tf.reduce_mean(loss)
-        if view and is_first:
+        if is_first:
             tf.summary.scalar('triplet_loss', loss)
         return None,loss
 
@@ -192,9 +192,9 @@ def triple_loss_layer(query_y,doc_positive_y,doc_negative_y,FLAGS_distance_type,
         sim = eular_distance_layer(query_y,doc_positive_y,doc_negative_y,1,1)
 
     if FLAGS_loss_type == 'softmax':
-        _,loss = softmax_loss(sim,view=False)
+        _,loss = softmax_loss(sim)
     else:
-        _,loss =triplet_loss(sim,view=False)
+        _,loss =triplet_loss(sim)
     return cos_sim,loss
 
 def accuracy_layer(prob):
