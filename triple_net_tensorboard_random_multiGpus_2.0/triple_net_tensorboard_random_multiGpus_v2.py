@@ -7,16 +7,16 @@ import time
 import numpy as np
 import tensorflow as tf
 from data_input_fast_random_v2 import Data_set
-from utils_multi_gpu import *
+from utils_multi_gpu_v2 import *
 
 #**************************************feed_dict***********************************************
 
 def pull_all(hard_df=None,is_retrain=False):
     #该地方插入函数，把query_iin，doc_positive_in,doc_negative_in转化成one_hot，再转化成coo_matrix
     if is_retrain:
-        query_in,doc_positive_in,doc_negative_in = train_data_set.get_one_hot_from_batch(query_BS)
-    else:
         query_in,doc_positive_in,doc_negative_in = train_data_set.get_one_hot_from_df_in(hard_df,query_BS)
+    else:
+        query_in,doc_positive_in,doc_negative_in = train_data_set.get_one_hot_from_batch(query_BS)
     query_in = coo_matrix(query_in)
     doc_positive_in = coo_matrix(doc_positive_in)
     doc_negative_in = coo_matrix(doc_negative_in)
@@ -35,17 +35,6 @@ def pull_all(hard_df=None,is_retrain=False):
         np.array(doc_negative_in.shape, dtype=np.int64))
 
     return query_in, doc_positive_in, doc_negative_in
-
-
-def feed_dict_train(on_training):
-    """
-    input: data_sets is a dict and the value type is numpy
-    describe: to match the text classification the data_sets's content is the doc in df
-    """
-    query, doc_positive, doc_negative = pull_all()
-        
-    return {query_in: query, doc_positive_in: doc_positive, doc_negative_in: doc_negative,
-            on_train: on_training}
 
 def feed_dict_train_multi_gpu():
     """
@@ -83,6 +72,10 @@ def feed_dict_predict(sentence,doc_positive_spt,on_training=True):
     describe: to match the text classification the data_sets's content is the doc in df
     """
     #该地方插入函数，把query_iin，doc_positive_in,doc_negative_in转化成one_hot，再转化成coo_matrix
+    query_in = query_input_list[0]
+    doc_positive_in  = doc_positive_input_list[0]
+    doc_negative_in = doc_negative_input_list[0]
+
     query = train_data_set.get_one_hot_from_sentence(sentence)
     
     query = coo_matrix(query)
@@ -125,7 +118,7 @@ def feed_dict_triple(query,doc_pos,doc_neg,on_training=True):
 
 def predict_label_n_with_sess(sess,sentence_list):
     with tf.variable_scope(tf.get_variable_scope(),reuse=True):
-        pred_label = model_pred_label(query_in,doc_positive_in,doc_negative_in)
+        pred_label = model_pred_label()
     result_list = []
     for i,sentence in enumerate(sentence_list):
         pred_label_v = sess.run(pred_label,feed_dict=feed_dict_predict(sentence,doc_main_question_spt))
@@ -135,7 +128,7 @@ def predict_label_n_with_sess(sess,sentence_list):
 
 def evaluate_test_with_sess(sess,test_question_query_list,test_question_label_list):
     with tf.variable_scope(tf.get_variable_scope(),reuse=True):
-        pred_label = model_pred_label(query_in,doc_positive_in,doc_negative_in)
+        pred_label = model_pred_label()
     count = 0
     acc = 0
     for i,sentence in enumerate(test_question_query_list):
@@ -148,7 +141,7 @@ def evaluate_test_with_sess(sess,test_question_query_list,test_question_label_li
 
 def evaluate_train_with_sess(sess,train_question_query_list,train_question_label_list):
     with tf.variable_scope(tf.get_variable_scope(),reuse=True):
-        pred_label = model_pred_label(query_in,doc_positive_in,doc_negative_in)
+        pred_label = model_pred_label()
     count = 0
     acc = 0
     for i,sentence in enumerate(train_question_query_list):
@@ -185,42 +178,36 @@ def model_loss(query_in,doc_positive_in,doc_negative_in,is_first):
     描述：为了获取函数loss管道出口
     """
     query_y,doc_positive_y,doc_negative_y =  model(query_in,doc_positive_in,doc_negative_in,is_first)
-    _,loss = train_loss_layer(query_y,doc_positive_y,doc_negative_y,query_BS)
+    _,loss = train_loss_layer(query_y,doc_positive_y,doc_negative_y,query_BS,FLAGS_distance_type,FLAGS_loss_type,is_first)
     return loss
 
-def model_pred_label(query_in,doc_positive_in,doc_negative_in):
+def model_pred_label():
     """
     描述：为了获取函数pred_label管道出口
     """
-    query_y,doc_positive_y,doc_negative_y =  model(query_in,doc_positive_in,doc_negative_in,is_first=False)
-    pred_label = predict_layer(query_y,doc_positive_y,main_question_num)
+    query_in = query_input_list[0]
+    doc_positive_in  = doc_positive_input_list[0]
+    doc_negative_in = doc_negative_input_list[0]
+    query_y,doc_positive_y,doc_negative_y = model(query_in,doc_positive_in,doc_negative_in,is_first=False)
+    pred_label = predict_layer(query_y,doc_positive_y,main_question_num,FLAGS_distance_type,FLAGS_loss_type)
     return pred_label
 
-def get_hard_negative_df(train_question_query_list,train_question_label_list):
+def get_hard_negative_df_with_sess(sess,train_question_query_list,train_question_label_list):
     query_list = []
     doc_positive_list = []
     doc_hard_negative_list = []
     saver = tf.train.Saver()
 
-    #写一个函数查看输入query和输出类别
-    config = tf.ConfigProto() 
-    if not FLAGS.gpu:
-        config = tf.ConfigProto(allow_soft_placement=True)
-        config.gpu_options.allow_growth = True
-
-    with tf.Session(config=config) as sess:     
-        saver.restore(sess, FLAGS_model_dir+FLAGS_checkpoint_name)
-        print "Model restored."
-        with tf.variable_scope(tf.get_variable_scope(),reuse=True):
-            pred_label = model_pred_label(query_in,doc_positive_in,doc_negative_in)
-            for i,sentence in enumerate(train_question_query_list):
-                pred_label_v = sess.run(pred_label,feed_dict=feed_dict_predict(sentence,doc_main_question_spt))
-                pred_main_question = train_data_set.get_main_question_from_label_index(pred_label_v)
-                if pred_main_question != train_question_label_list[i]:
-                    query_list.append(sentence)
-                    doc_positive_list.append(train_question_label_list[i])
-                    doc_hard_negative_list.append(pred_main_question)
-    df = pd.Dataframe(data={'query':query_list,'main_question':doc_positive_list,'other_question':doc_hard_negative_list})
+    with tf.variable_scope(tf.get_variable_scope(),reuse=True):
+        pred_label = model_pred_label()
+        for i,sentence in enumerate(train_question_query_list):
+            pred_label_v = sess.run(pred_label,feed_dict=feed_dict_predict(sentence,doc_main_question_spt))
+            pred_main_question = train_data_set.get_main_question_from_label_index(pred_label_v)
+            if pred_main_question != train_question_label_list[i]:
+                query_list.append(sentence)
+                doc_positive_list.append(train_question_label_list[i])
+                doc_hard_negative_list.append(pred_main_question)
+    df = pd.DataFrame(data={'query':query_list,'main_question':doc_positive_list,'other_question':doc_hard_negative_list})
     return df
 
 FLAGS_summaries_dir = 'Summaries/'      #Summaries directory
@@ -230,12 +217,12 @@ FLAGS_step_num = 100000                 #batch_step
 FLAGS_restep_num = 5000                 #hard train
 FLAGS_gpu = 0                           #Enable GPU or not
 FLAGS_print_cycle = 200                 #how many batches to print
-FLAGS_gpu_num = 2                       #how many gpus to use
+FLAGS_gpu_num = 1                       #how many gpus to use
 FLAGS_wfreq_flag = False                #input not use frequence information
 FLAGS_ngram_flag = False                #input not use ngram information
 FLAGS_loss_type = 'softmax'             #softmax or triplet_loss
 FLAGS_distance_type = 'cos'             #distance type eular or cos
-FLAGS_learning_rate = 'adam'            #type of optimizer
+FLAGS_opt_type = 'Adam'            #type of optimizer
 FLAGS_many_hard = True                  #many hard negative train
 name = "fc*2_" + str(FLAGS_step_num) + "_" + str(FLAGS_learning_rate) + '_' + 'wf:' + str(FLAGS_wfreq_flag) + '_ngram_flag:' + str(FLAGS_ngram_flag)
 FLAGS_train_write_name =  name          #tensorboard_name
@@ -243,7 +230,9 @@ FLAGS_checkpoint_name = name+'.ckpt'    #Summaries directory
 
 
 # the data_set and dataframe
-train_data_set = Data_set(data_path='data/train_data.csv',word_frequence_flag = FLAGS_wfreq_flag,ngram_flag = FLAGS_ngram_flag) #the train dataset
+train_data_set = Data_set(data_path='data/train_data.csv',word_frequence_flag = FLAGS_wfreq_flag,ngram_flag = FLAGS_ngram_flag)
+train_question_query_list = list(train_data_set.df['query'])
+train_question_label_list = list(train_data_set.df['main_question'])
 test_data_df = pd.read_csv('data/test_data.csv',encoding='utf-8')
 test_question_query_list = list(test_data_df['query'])
 test_question_label_list = list(test_data_df['main_question'])
@@ -275,12 +264,14 @@ elif FLAGS_opt_type == 'Moment':
     train_opt = tf.train.MomentumOptimizer(FLAGS_learning_rate,momentum=0.1)
 elif FLAGS_opt_type == 'SGD' :
     train_opt ==  tf.train.GradientDescentOptimizer(FLAGS_learning_rate)
+else:
+    raise RuntimeError("no right optimizer") 
 
 #获取输入变量
 query_input_list,doc_positive_input_list,doc_negative_input_list = model_input()
 
 #选择是否并行化
-if FLAGS_gpu_num > 1：
+if FLAGS_gpu_num > 1:
 
     # 定义训练轮数和指数衰减的学习率。
     global_step = tf.get_variable(
@@ -312,17 +303,14 @@ if FLAGS_gpu_num > 1：
     #设置训练step
     train_step = apply_gradient_op
 else:
-    loss = model_loss(query_input_list[i],doc_positive_input_list[i],doc_negative_input_list[i])
+    loss = model_loss(query_input_list[0],doc_positive_input_list[0],doc_negative_input_list[0],True)
     train_step = train_opt.minimize(loss)
 
 #合并所有可视化操作
 merged = tf.summary.merge_all()
 
-#测试集评估可视化
-evaluate_on_test_acc,evaluae_test_summary = get_evaluate_test_summary()
-#测试集评估可视化
-evaluate_on_train_acc,evaluae_train_summary = get_evaluate_train_summary()
-
+#测试集/训练集评估可视化
+evaluate_on_test_acc,evaluae_test_summary,evaluate_on_train_acc,evaluae_train_summary = get_evaluate_test_train_summary()
 #抽样文本预测可视化
 predict_strings,text_summary = get_text_summaries()
 
@@ -349,7 +337,7 @@ for batch_id in range(FLAGS_step_num):
         text_summary_t = sess.run(text_summary,feed_dict={predict_strings:predict_strings_v})
         train_writer.add_summary(text_summary_t,batch_id)
         #add evaluate_test
-        evaluae_test_summary_t = sess.run(evaluae_text_summary,feed_dict={evaluate_on_test_acc:evaluate_test_with_sess(sess,test_question_query_list,test_question_label_list)})
+        evaluae_test_summary_t = sess.run(evaluae_test_summary,feed_dict={evaluate_on_test_acc:evaluate_test_with_sess(sess,test_question_query_list,test_question_label_list)})
         train_writer.add_summary(evaluae_test_summary_t,batch_id)   
         #add evaluate on train
         evaluae_train_summary_t = sess.run(evaluae_train_summary,feed_dict={evaluate_on_train_acc:evaluate_train_with_sess(sess,train_question_query_list,train_question_label_list)})
@@ -364,18 +352,18 @@ for batch_id in range(FLAGS_step_num):
 if FLAGS_many_hard:
     print "start hard retraining"
     for batch_id in range(FLAGS_restep_num):   
-        hard_df = get_hard_negative_df(train_question_query_list,train_question_label_list)    
+        hard_df = get_hard_negative_df_with_sess(sess,train_question_query_list,train_question_label_list)   
         for k in range(int(len(hard_df)/query_BS)):
-           sess.run(train_step, feed_dict=feed_dict_retrain_hard_multi_gpu(hard_df)) 
+            sess.run(train_step, feed_dict=feed_dict_retrain_hard_multi_gpu(hard_df)) 
         #add evaluate_test
-        evaluae_test_summary_t = sess.run(evaluae_text_summary,feed_dict={evaluate_on_test_acc:evaluate_test_with_sess(sess,test_question_query_list,test_question_label_list)})
+        evaluae_test_summary_t = sess.run(evaluae_test_summary,feed_dict={evaluate_on_test_acc:evaluate_test_with_sess(sess,test_question_query_list,test_question_label_list)})
         train_writer.add_summary(evaluae_test_summary_t,batch_id+FLAGS_step_num)   
         #add evaluate on train
         evaluae_train_summary_t = sess.run(evaluae_train_summary,feed_dict={evaluate_on_train_acc:evaluate_train_with_sess(sess,train_question_query_list,train_question_label_list)})
         train_writer.add_summary(evaluae_train_summary_t,batch_id+FLAGS_step_num)   
  
 
-#保存模型,每个epoch保存一次
+ #保存模型,每个epoch保存一次
 sess.close()
 save_path = saver.save(sess, FLAGS_model_dir+FLAGS_checkpoint_name)
 print("Model saved in file: ", save_path)

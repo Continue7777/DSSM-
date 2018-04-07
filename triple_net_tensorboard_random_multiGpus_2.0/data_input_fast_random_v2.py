@@ -192,7 +192,7 @@ class Data_set:
         #doc_neg
         doc_neg = []
         for i,index in enumerate(random_index_list):
-            doc_pos.append(self.main_question_one_hot_dict[df_in.iloc[index]['other_question']])
+            doc_neg.append(self.main_question_one_hot_dict[df_in.iloc[index]['other_question']])
         doc_neg = np.array(doc_neg)
 
         return query,doc_pos,doc_neg

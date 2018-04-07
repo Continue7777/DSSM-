@@ -35,21 +35,14 @@ def get_text_summaries():
     return predict_strings,text_summary
     
 
-def get_evaluate_test_summary():
+def get_evaluate_test_train_summary():
     """
     desribe:this summary should not be merged
     """
     with tf.name_scope('evaluate'):
         evaluate_on_test_acc = tf.placeholder(tf.float32,name='evaluateOnTest')
-        return evaluate_on_test_acc,tf.summary.scalar('evaluate_on_test',evaluate_on_test_acc)
-
-def get_evaluate_train_summary():
-    """
-    desribe:this summary should not be merged
-    """
-    with tf.name_scope('evaluate'):
-        evaluate_on_test_acc = tf.placeholder(tf.float32,name='evaluateOnTrain')
-        return evaluate_on_test_acc,tf.summary.scalar('evaluate_on_train',evaluate_on_test_acc)
+        evaluate_on_train_acc = tf.placeholder(tf.float32,name='evaluateOnTrain')
+        return evaluate_on_test_acc,tf.summary.scalar('evaluate_on_test',evaluate_on_test_acc),evaluate_on_train_acc,tf.summary.scalar('evaluate_on_train',evaluate_on_train_acc)
    
  #**************************************layer***********************************************
 
@@ -149,30 +142,30 @@ def eular_distance_layer(query_y,doc_positive_y, doc_negative_y,doc_negative_num
         eular_distance = tf.transpose(tf.reshape(tf.transpose(eular_distance_raw), [doc_negative_num+1, batch_size]))
     return eular_distance
 
-def softmax_loss(distance_sim,view=True):
+def softmax_loss(distance_sim,view=True,is_first=False):
     with tf.name_scope('softmax_loss'):
         # 转化为softmax概率矩阵。
         prob = tf.nn.softmax(distance_sim)
         # 只取第一列，即正样本列概率。
         hit_prob = tf.slice(prob, [0, 0], [-1, 1])
         loss = -tf.reduce_sum(tf.log(hit_prob))
-        if view:
+        if view and is_first:
             tf.summary.scalar('softmax_loss', loss)
     return prob,loss
 
-def triplet_loss(distance_sim,margin=1.0,view=True):
+def triplet_loss(distance_sim,margin=1.0,view=True,is_first=False):
     with tf.name_scope('triplet_loss'):   
         d_pos = distance_sim[0,:]
         d_neg = distance_sim[1,:]
 
         loss = tf.maximum(0., margin + d_pos - d_neg)
         loss = tf.reduce_mean(loss)
-        if view:
+        if view and is_first:
             tf.summary.scalar('triplet_loss', loss)
         return None,loss
 
 
-def train_loss_layer(query_y,doc_positive_y,doc_negative_y,query_BS):
+def train_loss_layer(query_y,doc_positive_y,doc_negative_y,query_BS,FLAGS_distance_type,FLAGS_loss_type,is_first):
     """
     cos_sim : [2,query_BS]
     """
@@ -182,14 +175,14 @@ def train_loss_layer(query_y,doc_positive_y,doc_negative_y,query_BS):
         sim = eular_distance_layer(query_y,doc_positive_y,doc_negative_y,1,query_BS)
 
     if FLAGS_loss_type == 'softmax':
-        _,loss = softmax_loss(sim)
+        _,loss = softmax_loss(sim,is_first)
     else:
-        _,loss =triplet_loss(sim)
+        _,loss =triplet_loss(sim,is_first)
 
    
     return sim,loss
 
-def triple_loss_layer(query_y,doc_positive_y,doc_negative_y):
+def triple_loss_layer(query_y,doc_positive_y,doc_negative_y,FLAGS_distance_type,FLAGS_loss_type):
     """
     cos_sim : [2,1]
     """
@@ -210,15 +203,25 @@ def accuracy_layer(prob):
     tf.summary.scalar('accuracy', accuracy)
     return accuracy
 
-def predict_layer(query_y,doc_positive_y,main_question_num):
+def predict_layer(query_y,doc_positive_y,main_question_num,FLAGS_distance_type,FLAGS_loss_type):
     """
     cos_sim : [main_len,1]
     """
     if FLAGS_distance_type == 'cos':
-        sim = cos_distance_layer(query_y,doc_positive_y,main_question_num,1,1)
-        label = tf.argmax(sim,1)[0]
+        query_norm = tf.tile(tf.sqrt(tf.reduce_sum(tf.square(query_y), 1, True)), [main_question_num, 1])
+        doc_norm = tf.sqrt(tf.reduce_sum(tf.square(doc_positive_y), 1, True))
+
+        prod = tf.reduce_sum(tf.multiply(tf.tile(query_y, [main_question_num, 1]), doc_positive_y), 1, True)
+        norm_prod = tf.multiply(query_norm, doc_norm)
+
+        # cos_sim_raw = query * doc / (||query|| * ||doc||)
+        cos_sim_raw = tf.truediv(prod, norm_prod)
+
+        cos_sim = tf.transpose(tf.reshape(tf.transpose(cos_sim_raw), [main_question_num, 1]))
+        prob = tf.nn.softmax(cos_sim)
+        label = tf.argmax(prob,1)[0]
     else:
-        sim = eular_distance_layer(query_y,doc_positive_y,main_question_num,1,1)
+        eular_distance_raw = tf.reduce_sum(tf.square(tf.tile(query_y, [main_question_num, 1]) - doc_positive_y), 1)
         label = tf.argmin(sim,1)[0]
 
     return label
