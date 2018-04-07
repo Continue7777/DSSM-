@@ -178,7 +178,7 @@ def model_loss(query_in,doc_positive_in,doc_negative_in,is_first):
     描述：为了获取函数loss管道出口
     """
     query_y,doc_positive_y,doc_negative_y =  model(query_in,doc_positive_in,doc_negative_in,is_first)
-    _,loss = train_loss_layer(query_y,doc_positive_y,doc_negative_y,query_BS,FLAGS_distance_type,FLAGS_loss_type,view=True,isfirst=is_first)
+    _,loss = train_loss_layer(query_y,doc_positive_y,doc_negative_y,query_BS,FLAGS_distance_type,FLAGS_loss_type,is_first)
     return loss
 
 def model_pred_label():
@@ -188,7 +188,7 @@ def model_pred_label():
     query_in = query_input_list[0]
     doc_positive_in  = doc_positive_input_list[0]
     doc_negative_in = doc_negative_input_list[0]
-    query_y,doc_positive_y,doc_negative_y = model(query_in,doc_positive_in,doc_negative_in,is_first=False)
+    query_y,doc_positive_y,doc_negative_y = model(query_in,doc_positive_in,doc_negative_in,False)
     pred_label = predict_layer(query_y,doc_positive_y,main_question_num,FLAGS_distance_type,FLAGS_loss_type)
     return pred_label
 
