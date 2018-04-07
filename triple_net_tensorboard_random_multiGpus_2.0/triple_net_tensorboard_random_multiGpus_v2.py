@@ -11,10 +11,12 @@ from utils_multi_gpu import *
 
 #**************************************feed_dict***********************************************
 
-def pull_all():
+def pull_all(hard_df=None,is_retrain=False):
     #该地方插入函数，把query_iin，doc_positive_in,doc_negative_in转化成one_hot，再转化成coo_matrix
-    query_in,doc_positive_in,doc_negative_in = train_data_set.get_one_hot_from_batch(query_BS)
-    
+    if is_retrain:
+        query_in,doc_positive_in,doc_negative_in = train_data_set.get_one_hot_from_batch(query_BS)
+    else:
+        query_in,doc_positive_in,doc_negative_in = train_data_set.get_one_hot_from_df_in(hard_df,query_BS)
     query_in = coo_matrix(query_in)
     doc_positive_in = coo_matrix(doc_positive_in)
     doc_negative_in = coo_matrix(doc_negative_in)
@@ -54,6 +56,21 @@ def feed_dict_train_multi_gpu():
     result_dict[on_train]=True
     for i in range(FLAGS_gpu_num):
         query, doc_positive, doc_negative = pull_all()
+        result_dict[query_input_list[i]] = query
+        result_dict[doc_positive_input_list[i]] = doc_positive
+        result_dict[doc_negative_input_list[i]] = doc_negative
+        
+    return result_dict
+
+def feed_dict_retrain_hard_multi_gpu(hard_df):
+    """
+    input: data_sets is a dict and the value type is numpy
+    describe: to match the text classification the data_sets's content is the doc in df
+    """
+    result_dict = {}
+    result_dict[on_train]=True
+    for i in range(FLAGS_gpu_num):
+        query, doc_positive, doc_negative = pull_all(hard_df,True)
         result_dict[query_input_list[i]] = query
         result_dict[doc_positive_input_list[i]] = doc_positive
         result_dict[doc_negative_input_list[i]] = doc_negative
@@ -179,10 +196,38 @@ def model_pred_label(query_in,doc_positive_in,doc_negative_in):
     pred_label = predict_layer(query_y,doc_positive_y,main_question_num)
     return pred_label
 
+def get_hard_negative_df(train_question_query_list,train_question_label_list):
+    query_list = []
+    doc_positive_list = []
+    doc_hard_negative_list = []
+    saver = tf.train.Saver()
+
+    #写一个函数查看输入query和输出类别
+    config = tf.ConfigProto() 
+    if not FLAGS.gpu:
+        config = tf.ConfigProto(allow_soft_placement=True)
+        config.gpu_options.allow_growth = True
+
+    with tf.Session(config=config) as sess:     
+        saver.restore(sess, FLAGS_model_dir+FLAGS_checkpoint_name)
+        print "Model restored."
+        with tf.variable_scope(tf.get_variable_scope(),reuse=True):
+            pred_label = model_pred_label(query_in,doc_positive_in,doc_negative_in)
+            for i,sentence in enumerate(train_question_query_list):
+                pred_label_v = sess.run(pred_label,feed_dict=feed_dict_predict(sentence,doc_main_question_spt))
+                pred_main_question = train_data_set.get_main_question_from_label_index(pred_label_v)
+                if pred_main_question != train_question_label_list[i]:
+                    query_list.append(sentence)
+                    doc_positive_list.append(train_question_label_list[i])
+                    doc_hard_negative_list.append(pred_main_question)
+    df = pd.Dataframe(data={'query':query_list,'main_question':doc_positive_list,'other_question':doc_hard_negative_list})
+    return df
+
 FLAGS_summaries_dir = 'Summaries/'      #Summaries directory
 FLAGS_model_dir =  'model/'             #model directory
 FLAGS_learning_rate = 0.01              #Initial learning rate
 FLAGS_step_num = 100000                 #batch_step
+FLAGS_restep_num = 5000                 #hard train
 FLAGS_gpu = 0                           #Enable GPU or not
 FLAGS_print_cycle = 200                 #how many batches to print
 FLAGS_gpu_num = 2                       #how many gpus to use
@@ -290,32 +335,47 @@ if not FLAGS_gpu:
 
 #创建一个Saver对象，选择性保存变量或者模型。
 saver = tf.train.Saver()
-with tf.Session(config=config) as sess:
+sess = tf.Session(config=config)
  
-    sess.run(tf.global_variables_initializer())
-    train_writer = tf.summary.FileWriter(FLAGS_summaries_dir + FLAGS_train_write_name, sess.graph)
+sess.run(tf.global_variables_initializer())
+train_writer = tf.summary.FileWriter(FLAGS_summaries_dir + FLAGS_train_write_name, sess.graph)
 
-    print "start training"
-    for batch_id in range(FLAGS_step_num):       
-        if batch_id % FLAGS_print_cycle == 0 and batch_id != 0:
-            #add text_summary
-            query_list = random.sample(list(train_data_set.df['query']),10)
-            predict_strings_v = predict_label_n_with_sess(sess,query_list)
-            text_summary_t = sess.run(text_summary,feed_dict={predict_strings:predict_strings_v})
-            train_writer.add_summary(text_summary_t,batch_id)
-            #add evaluate_test
-            evaluae_test_summary_t = sess.run(evaluae_text_summary,feed_dict={evaluate_on_test_acc:evaluate_test_with_sess(sess,test_question_query_list,test_question_label_list)})
-            train_writer.add_summary(evaluae_test_summary_t,batch_id)   
-            #add evaluate on train
-            evaluae_train_summary_t = sess.run(evaluae_train_summary,feed_dict={evaluate_on_train_acc:evaluate_test_with_sess(sess,train_question_query_list,train_question_label_list)})
-            train_writer.add_summary(evaluae_train_summary_t,batch_id)   
-        elif batch_id % 100 == 0:
-            summary_v,_ = sess.run([merged,train_step], feed_dict=feed_dict_train_multi_gpu()) 
-            train_writer.add_summary(summary_v, batch_id)
-        else:
-            sess.run(train_step, feed_dict=feed_dict_train_multi_gpu())
+print "start training"
+for batch_id in range(FLAGS_step_num):       
+    if batch_id % FLAGS_print_cycle == 0 and batch_id != 0:
+        #add text_summary
+        query_list = random.sample(list(train_data_set.df['query']),10)
+        predict_strings_v = predict_label_n_with_sess(sess,query_list)
+        text_summary_t = sess.run(text_summary,feed_dict={predict_strings:predict_strings_v})
+        train_writer.add_summary(text_summary_t,batch_id)
+        #add evaluate_test
+        evaluae_test_summary_t = sess.run(evaluae_text_summary,feed_dict={evaluate_on_test_acc:evaluate_test_with_sess(sess,test_question_query_list,test_question_label_list)})
+        train_writer.add_summary(evaluae_test_summary_t,batch_id)   
+        #add evaluate on train
+        evaluae_train_summary_t = sess.run(evaluae_train_summary,feed_dict={evaluate_on_train_acc:evaluate_train_with_sess(sess,train_question_query_list,train_question_label_list)})
+        train_writer.add_summary(evaluae_train_summary_t,batch_id)   
+    elif batch_id % 100 == 0:
+        summary_v,_ = sess.run([merged,train_step], feed_dict=feed_dict_train_multi_gpu()) 
+        train_writer.add_summary(summary_v, batch_id)
+    else:
+        sess.run(train_step, feed_dict=feed_dict_train_multi_gpu())
 
+#开始many hard negative
+if FLAGS_many_hard:
+    print "start hard retraining"
+    for batch_id in range(FLAGS_restep_num):   
+        hard_df = get_hard_negative_df(train_question_query_list,train_question_label_list)    
+        for k in range(int(len(hard_df)/query_BS)):
+           sess.run(train_step, feed_dict=feed_dict_retrain_hard_multi_gpu(hard_df)) 
+        #add evaluate_test
+        evaluae_test_summary_t = sess.run(evaluae_text_summary,feed_dict={evaluate_on_test_acc:evaluate_test_with_sess(sess,test_question_query_list,test_question_label_list)})
+        train_writer.add_summary(evaluae_test_summary_t,batch_id+FLAGS_step_num)   
+        #add evaluate on train
+        evaluae_train_summary_t = sess.run(evaluae_train_summary,feed_dict={evaluate_on_train_acc:evaluate_train_with_sess(sess,train_question_query_list,train_question_label_list)})
+        train_writer.add_summary(evaluae_train_summary_t,batch_id+FLAGS_step_num)   
+ 
 
-    #保存模型,每个epoch保存一次
-    save_path = saver.save(sess, FLAGS_model_dir+FLAGS_checkpoint_name)
-    print("Model saved in file: ", save_path)
+#保存模型,每个epoch保存一次
+sess.close()
+save_path = saver.save(sess, FLAGS_model_dir+FLAGS_checkpoint_name)
+print("Model saved in file: ", save_path)
