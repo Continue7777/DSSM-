@@ -140,6 +140,63 @@ class Data_set:
 
         return query,doc_pos,doc_neg
     
+ 	#外部传入一个df，然后获取batch输出
+    def get_one_hot_from_df_in(self,df_in,query_BS):
+        #随机抽取100个pair对
+        random_index_list = self.get_random_list(query_BS,len(df_in))
+        
+
+        #query
+        if self.word_frequence_flag and self.ngram_flag:
+            query = np.zeros((query_BS,len(self.word_dict)))
+            for i,index in enumerate(random_index_list):
+                sentence = df_in.iloc[index]['query']
+                for j,w in enumerate(sentence):
+                    ngram_word = sentence[j:j+2]
+                    if w in self.word_dict:
+                        query[i,self.word_dict[w][0]] = self.word_dict[w][1]
+                    if ngram_word in self.word_dict:
+                        query[i,self.word_dict[ngram_word][0]] = self.word_dict[ngram_word][1]
+        elif not self.word_frequence_flag and self.ngram_flag:
+            query = np.zeros((query_BS,len(self.word_dict)))
+            for i,index in enumerate(random_index_list):
+                sentence = df_in.iloc[index]['query']
+                for j,w in enumerate(sentence):
+                    ngram_word = sentence[j:j+2]
+                    if w in self.word_dict:
+                        query[i,self.word_dict[w][0]] = 1
+                    if ngram_word in self.word_dict:
+                        query[i,self.word_dict[ngram_word][0]] = 1
+        elif self.word_frequence_flag and not self.ngram_flag:
+            query = np.zeros((query_BS,len(self.word_dict)))
+            for i,index in enumerate(random_index_list):
+                sentence = df_in.iloc[index]['query']
+                for w in sentence:
+                    if w in self.word_dict:
+                        query[i,self.word_dict[w][0]] = self.word_dict[w][1]
+        elif not self.word_frequence_flag and not self.ngram_flag:
+            query = np.zeros((query_BS,len(self.word_dict)))
+            for i,index in enumerate(random_index_list):
+                sentence = df_in.iloc[index]['query']
+                for w in sentence:
+                    if w in self.word_dict:
+                        query[i,self.word_dict[w][0]] = 1
+
+        #doc_pos
+        doc_pos = []
+        for i,index in enumerate(random_index_list):
+            doc_pos.append(self.main_question_one_hot_dict[df_in.iloc[index]['main_question']])
+        doc_pos = np.array(doc_pos)
+
+
+        #doc_neg
+        doc_neg = []
+        for i,index in enumerate(random_index_list):
+            doc_pos.append(self.main_question_one_hot_dict[df_in.iloc[index]['other_question']])
+        doc_neg = np.array(doc_neg)
+
+        return query,doc_pos,doc_neg
+
     # 获取一个句子的onehot
     def get_one_hot_from_sentence(self,sentence):
         #转化到unicode编码
