@@ -33,6 +33,15 @@ def get_text_summaries():
         predict_strings = tf.placeholder(tf.string,name='predict')
         text_summary = tf.summary.text(name='pair',tensor=predict_strings)
     return predict_strings,text_summary
+
+def get_log_summaries():
+    """
+    desribe:this summary should not be merged
+    """
+    with tf.name_scope('log'):
+        log_strings = tf.placeholder(tf.string,name='log_info')
+        log_summary = tf.summary.text(name='log_info',tensor=log_strings)
+    return log_strings,log_summary
     
 
 def get_evaluate_test_train_summary():

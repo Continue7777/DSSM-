@@ -117,8 +117,6 @@ def feed_dict_triple(query,doc_pos,doc_neg,on_training=True):
     return {query_in: query, doc_positive_in: doc_positive, doc_negative_in: doc_negative,on_train: on_training}
 
 def predict_label_n_with_sess(sess,sentence_list):
-    with tf.variable_scope(tf.get_variable_scope(),reuse=True):
-        pred_label = model_pred_label()
     result_list = []
     for i,sentence in enumerate(sentence_list):
         pred_label_v = sess.run(pred_label,feed_dict=feed_dict_predict(sentence,doc_main_question_spt))
@@ -127,8 +125,6 @@ def predict_label_n_with_sess(sess,sentence_list):
     return result_list
 
 def evaluate_test_with_sess(sess,test_question_query_list,test_question_label_list):
-    with tf.variable_scope(tf.get_variable_scope(),reuse=True):
-        pred_label = model_pred_label()
     count = 0
     acc = 0
     for i,sentence in enumerate(test_question_query_list):
@@ -140,8 +136,6 @@ def evaluate_test_with_sess(sess,test_question_query_list,test_question_label_li
     return acc/float(count)
 
 def evaluate_train_with_sess(sess,train_question_query_list,train_question_label_list):
-    with tf.variable_scope(tf.get_variable_scope(),reuse=True):
-        pred_label = model_pred_label()
     count = 0
     acc = 0
     for i,sentence in enumerate(train_question_query_list):
@@ -198,36 +192,39 @@ def get_hard_negative_df_with_sess(sess,train_question_query_list,train_question
     doc_hard_negative_list = []
     saver = tf.train.Saver()
 
-    with tf.variable_scope(tf.get_variable_scope(),reuse=True):
-        pred_label = model_pred_label()
-        for i,sentence in enumerate(train_question_query_list):
-            pred_label_v = sess.run(pred_label,feed_dict=feed_dict_predict(sentence,doc_main_question_spt))
-            pred_main_question = train_data_set.get_main_question_from_label_index(pred_label_v)
-            if pred_main_question != train_question_label_list[i]:
-                query_list.append(sentence)
-                doc_positive_list.append(train_question_label_list[i])
-                doc_hard_negative_list.append(pred_main_question)
+    for i,sentence in enumerate(train_question_query_list):
+        pred_label_v = sess.run(pred_label,feed_dict=feed_dict_predict(sentence,doc_main_question_spt))
+        pred_main_question = train_data_set.get_main_question_from_label_index(pred_label_v)
+        if pred_main_question != train_question_label_list[i]:
+            query_list.append(sentence)
+            doc_positive_list.append(train_question_label_list[i])
+            doc_hard_negative_list.append(pred_main_question)
     df = pd.DataFrame(data={'query':query_list,'main_question':doc_positive_list,'other_question':doc_hard_negative_list})
     return df
+
+def format_dict(info_dict):
+    string = ""
+    for k in info_dict:
+        string += str(k) + ":" + str(info_dict[k]) + "\n"
+    return string
 
 FLAGS_summaries_dir = 'Summaries/'      #Summaries directory
 FLAGS_model_dir =  'model/'             #model directory
 FLAGS_learning_rate = 0.01              #Initial learning rate
-FLAGS_step_num = 100000                 #batch_step
-FLAGS_restep_num = 5000                 #hard train
 FLAGS_gpu = 0                           #Enable GPU or not
-FLAGS_print_cycle = 200                 #how many batches to print
 FLAGS_gpu_num = 1                       #how many gpus to use
+FLAGS_step_num = 300000                 #batch_step
+FLAGS_many_hard = True                  #many hard negative train
+FLAGS_restep_num = 500                 #hard train
+FLAGS_print_cycle = 2000                 #how many batches to print
 FLAGS_wfreq_flag = False                #input not use frequence information
 FLAGS_ngram_flag = False                #input not use ngram information
 FLAGS_loss_type = 'softmax'             #softmax or triplet_loss
 FLAGS_distance_type = 'cos'             #distance type eular or cos
 FLAGS_opt_type = 'Adam'            #type of optimizer
-FLAGS_many_hard = True                  #many hard negative train
-name = "fc*2_" + str(FLAGS_step_num) + "_" + str(FLAGS_learning_rate) + '_' + 'wf:' + str(FLAGS_wfreq_flag) + '_ngram_flag:' + str(FLAGS_ngram_flag)
-FLAGS_train_write_name =  name          #tensorboard_name
+name = "fc*2 " + str(FLAGS_wfreq_flag) + " " +  str(FLAGS_ngram_flag) + " " +str(FLAGS_many_hard)
+FLAGS_train_write_name = name          #tensorboard_name
 FLAGS_checkpoint_name = name+'.ckpt'    #Summaries directory
-
 
 # the data_set and dataframe
 train_data_set = Data_set(data_path='data/train_data.csv',word_frequence_flag = FLAGS_wfreq_flag,ngram_flag = FLAGS_ngram_flag)
@@ -248,12 +245,18 @@ doc_main_question_spt = tf.SparseTensorValue(
 # the arg of triple-net
 input_layer_num = train_data_set.get_word_num()
 main_question_num =  train_data_set.get_main_question_num()
-query_BS = 100
 
 # the architecture of the triple-net
 is_norm = False
+query_BS = 250
 layer1_len = 400
 layer2_len = 120
+
+info_dict = {"summaries_dir":FLAGS_summaries_dir,"model_dir":FLAGS_model_dir,"gpu_num":FLAGS_gpu_num,"learning_rate":FLAGS_learning_rate,
+"step_num":FLAGS_step_num,"restep_num":FLAGS_restep_num,"print_cycle":FLAGS_print_cycle,"wfreq_flag":FLAGS_wfreq_flag,"ngram_flag":FLAGS_ngram_flag,
+"loss_type":FLAGS_loss_type,"distance_type":FLAGS_distance_type,"optimizer_type":FLAGS_opt_type,"model":"fc*2","layer1_hidden":layer1_len,"layer2_hidden":layer2_len,
+"is_norm",is_norm}
+log_info = format_dict(info_dict)
 
 # input
 query_in,doc_positive_in,doc_negative_in,on_train = input_layer(input_layer_num)
@@ -313,7 +316,12 @@ merged = tf.summary.merge_all()
 evaluate_on_test_acc,evaluae_test_summary,evaluate_on_train_acc,evaluae_train_summary = get_evaluate_test_train_summary()
 #抽样文本预测可视化
 predict_strings,text_summary = get_text_summaries()
+#记录log信息
+log_strings,log_summary = get_log_summaries()
 
+with tf.variable_scope(tf.get_variable_scope(),reuse=True):
+    pred_label = model_pred_label()
+    
 #训练
 config = tf.ConfigProto() 
 if not FLAGS_gpu:
@@ -327,6 +335,9 @@ sess = tf.Session(config=config)
  
 sess.run(tf.global_variables_initializer())
 train_writer = tf.summary.FileWriter(FLAGS_summaries_dir + FLAGS_train_write_name, sess.graph)
+#text中记录log信息
+log_summary_t = sess.run(log_summary,feed_dict={log_strings:log_info})
+train_writer.add_summary(log_summary_t)
 
 print "start training"
 for batch_id in range(FLAGS_step_num):       
