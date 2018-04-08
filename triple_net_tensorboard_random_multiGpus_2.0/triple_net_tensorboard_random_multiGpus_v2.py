@@ -202,10 +202,10 @@ def get_hard_negative_df_with_sess(sess,train_question_query_list,train_question
     df = pd.DataFrame(data={'query':query_list,'main_question':doc_positive_list,'other_question':doc_hard_negative_list})
     return df
 
-def format_dict(info_dict):
+def format_dict(info_dict,log_name_list):
     string = []
-    for k in info_dict:
-        string.append(str(k) + ":" + str(info_dict[k]))
+    for index in log_name_list:
+        string.append(str(index) + ":" + str(info_dict[index]))
     return string
 
 FLAGS_summaries_dir = 'Summaries/'      #Summaries directory
@@ -256,7 +256,9 @@ info_dict = {"summaries_dir":FLAGS_summaries_dir,"model_dir":FLAGS_model_dir,"gp
 "step_num":FLAGS_step_num,"restep_num":FLAGS_restep_num,"print_cycle":FLAGS_print_cycle,"wfreq_flag":FLAGS_wfreq_flag,"ngram_flag":FLAGS_ngram_flag,
 "loss_type":FLAGS_loss_type,"distance_type":FLAGS_distance_type,"optimizer_type":FLAGS_opt_type,"model":"fc*2","layer1_hidden":layer1_len,"layer2_hidden":layer2_len,
 "is_norm":is_norm}
-log_info = format_dict(info_dict)
+log_name_list = ["summaries_dir","model_dir"r,"gpu_num","learning_rate","step_num","restep_num","print_cycle","wfreq_flag","ngram_flag",
+"loss_type","distance_type","optimizer_type","model","layer1_hidden","layer2_hidden","is_norm"]
+log_info = format_dict(info_dict,log_name_list)
 
 # input
 query_in,doc_positive_in,doc_negative_in,on_train = input_layer(input_layer_num)
